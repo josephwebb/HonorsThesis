@@ -81,3 +81,122 @@ ggplot(forest_data, aes(x=DIST_KM)) +
   ggtitle("Distribution of Distance (km) from Forest to Closest Station") +
   xlab("Distance (km)") + ylab("Count")
 
+################ Gathering Data From https://www.ncei.noaa.gov/data/global-summary-of-the-month/access/ ######
+
+## Generate List of Unique Appearances in CLOSE_STAT ##
+unique_stations <- unique(forest_data$CLOSE_STAT)
+
+# Create directory if it doesn't exist
+if(!dir.exists("StatData")) {
+  dir.create("StatData")
+}
+
+# Set the URL for the csv files
+url <- "https://www.ncei.noaa.gov/data/global-summary-of-the-month/access/"
+
+# Loop through the station IDs and download the corresponding csv file
+# for (station_id in unique_stations) {
+#  file_url <- paste0(url, station_id, ".csv")
+#  download.file(file_url, destfile = paste0("StatData/", station_id, ".csv"), method = "curl")
+# }
+
+### Create new matrix that combines the station data for May 2022
+## find used varaibles
+# Set the path to the directory containing the CSV files
+path <- "StatData"
+
+# Get a list of all the CSV files in the directory
+files <- list.files(path, pattern = ".csv$")
+
+# Initialize an empty data frame to store the frequency counts
+freq_table <- data.frame(variable = character(),
+                         count = numeric(),
+                         stringsAsFactors = FALSE)
+
+# Loop through the CSV files
+for (file in files) {
+  # Read in the data from the current file
+  data <- read.csv(file.path(path, file), stringsAsFactors = FALSE)
+  
+  # Get the column names
+  col_names <- names(data)
+  
+  # Remove Station, Date, Latitude, Longitude, and Name columns
+  col_names <- col_names[!col_names %in% c("STATION", "DATE", "LATITUDE", "LONGITUDE", "NAME")]
+  
+  # Loop through the remaining columns
+  for (col_name in col_names) {
+    # Check if the variable is already in the frequency table
+    if (col_name %in% freq_table$variable) {
+      # Increment the count for the variable
+      freq_table[freq_table$variable == col_name, "count"] <- freq_table[freq_table$variable == col_name, "count"] + 1
+    } else {
+      # Add a new row to the frequency table for the variable
+      freq_table <- rbind(freq_table, data.frame(variable = col_name, count = 1, stringsAsFactors = FALSE))
+    }
+  }
+}
+
+freq_table <- subset(freq_table, !grepl("ATTRIBUTES$", variable))
+
+# Print the frequency table (45 variables)
+print(freq_table)
+
+#######################  Add Station Data to Forest ##############################
+# Create a list of all Station_ID's
+station_ids <- unique(forest_data$CLOSE_STAT)
+
+# Create a data frame to hold the final output
+output_df <- data.frame(matrix(nrow = length(station_ids), 
+                               ncol = nrow(freq_table) + 2))
+colnames(output_df) <- c("Station_ID", "DATE", freq_table$variable)
+
+# Loop through each Station_ID
+for (i in seq_along(station_ids)) {
+  
+  # Get the Station_ID and corresponding file name
+  station_id <- station_ids[i]
+  file_name <- paste0("StatData/", station_id, ".csv")
+  
+  # Check if the file exists
+  if (!file.exists(file_name)) {
+    output_df[i,] <- c(station_id, "NO-DATE", rep("", nrow(freq_table)))
+    next
+  }
+  
+  # Read in the file
+  file_data <- read_csv(file_name)
+  
+  # Check if the file has a row with DATE == "2022-05"
+  if (!("2022-05" %in% file_data$DATE)) {
+    output_df[i,] <- c(station_id, "NO-DATE", rep("", nrow(freq_table)))
+    next
+  }
+  
+  # Filter the data to only keep the row with DATE == "2022-05"
+  file_data <- filter(file_data, DATE == "2022-05")
+  
+  # Get the distance between the forest and weather station
+  dist <- distHaversine(p1 = c(forest_data$LONGITUDE[i], forest_data$LATITUDE[i]), 
+                        p2 = c(file_data$LONGITUDE, file_data$LATITUDE))
+  
+  # Add the distance to the file data
+  file_data$DIST <- dist
+  
+  # Join the freq_table with the file data based on variable name
+  output_row <- freq_table %>% 
+    left_join(select(file_data, freq_table$variable, DIST), by = "variable") %>%
+    select(DIST, freq_table$variable) %>%
+    unlist() %>%
+    as.vector()
+  
+  # Add the Station_ID and DATE to the output row
+  output_row <- c(station_id, "2022-05", output_row)
+  
+  # Add the output row to the output dataframe
+  output_df[i,] <- output_row
+  
+}
+
+# Save the output dataframe to a csv file
+write.csv(output_df, "output.csv", row.names = FALSE)
