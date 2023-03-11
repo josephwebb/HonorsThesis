@@ -8,7 +8,7 @@
     "dirty": false,
     "created": 1678554831621.0,
     "source_on_save": false,
-    "relative_order": 3,
+    "relative_order": 6,
     "properties": {
         "expression": "freq_table1",
         "caption": "freq_table1",

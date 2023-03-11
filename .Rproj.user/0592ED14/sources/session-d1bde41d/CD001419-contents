@@ -143,60 +143,81 @@ freq_table <- subset(freq_table, !grepl("ATTRIBUTES$", variable))
 print(freq_table)
 
 #######################  Add Station Data to Forest ##############################
-# Create a list of all Station_ID's
-station_ids <- unique(forest_data$CLOSE_STAT)
+# define the variables to include in the final output
+vars_to_include <- c("STATION", "DATE", "ELEVATION", "DP01", "DP10", "DP1X", "DSND", "DSNW"    ,  "EMSD"      ,"EMSN"     , "EMXP"     , "PRCP",      "SNOW"      ,"CDSD"  ,    "CLDD"    ,  "DT00"  ,    "DT32"  ,   
+                     "DX32"  ,    "DX70"     , "DX90"    ,  "DYFG"   ,   "DYTS"     , "EMNT"   ,  "EMXT"    ,  "HDSD"  ,   "HTDD" ,     "TAVG" ,     "TMAX"   ,   "TMIN"  ,    "EVAP",      "MNPN"   ,   "MXPN"  ,   
+                     "WDMV"  ,    "AWND"   ,   "DYHF"    ,  "TSUN"    , "WDF2"  ,    "WDF5"   ,   "WSF2"  ,    "WSF5"  ,    "WDFG"  ,    "WSFG"    , "PSUN",     "WDF1"    ,  "WDFM"   ,  "WSF1"    ,  "WSFM"  )
 
-# Create a data frame to hold the final output
-output_df <- data.frame(matrix(nrow = length(station_ids), 
-                               ncol = nrow(freq_table) + 2))
-colnames(output_df) <- c("Station_ID", "DATE", freq_table$variable)
+# set the working directory to the StatData folder
+setwd("C:/Users/Joe/Desktop/HonorThesis/StatData")
 
-# Loop through each Station_ID
-for (i in seq_along(station_ids)) {
+# create an empty data frame to store the final output
+stat_data <- data.frame()
+
+# loop through all files in the working directory
+for (filename in list.files(pattern = "\\.csv$")) {
   
-  # Get the Station_ID and corresponding file name
-  station_id <- station_ids[i]
-  file_name <- paste0("StatData/", station_id, ".csv")
+  # read in the csv file
+  data <- read.csv(filename, header = TRUE, stringsAsFactors = FALSE)
   
-  # Check if the file exists
-  if (!file.exists(file_name)) {
-    output_df[i,] <- c(station_id, "NO-DATE", rep("", nrow(freq_table)))
-    next
+  # filter the data to only include rows with DATE = "2022-05"
+  data <- data[data$DATE == "2022-05", ]
+  
+  if (nrow(data) > 0) { # add this check
+    # add columns with missing variables and set them to NA
+    missing_vars <- setdiff(vars_to_include, colnames(data))
+    for (var in missing_vars) {
+      data[[var]] <- NA
+    }
+    
+    # select only the variables listed in vars_to_include
+    data <- data[, vars_to_include]
+    
+    # append the data to the stat_data data frame
+    stat_data <- rbind(stat_data, data)
   }
-  
-  # Read in the file
-  file_data <- read_csv(file_name)
-  
-  # Check if the file has a row with DATE == "2022-05"
-  if (!("2022-05" %in% file_data$DATE)) {
-    output_df[i,] <- c(station_id, "NO-DATE", rep("", nrow(freq_table)))
-    next
-  }
-  
-  # Filter the data to only keep the row with DATE == "2022-05"
-  file_data <- filter(file_data, DATE == "2022-05")
-  
-  # Get the distance between the forest and weather station
-  dist <- distHaversine(p1 = c(forest_data$LONGITUDE[i], forest_data$LATITUDE[i]), 
-                        p2 = c(file_data$LONGITUDE, file_data$LATITUDE))
-  
-  # Add the distance to the file data
-  file_data$DIST <- dist
-  
-  # Join the freq_table with the file data based on variable name
-  output_row <- freq_table %>% 
-    left_join(select(file_data, freq_table$variable, DIST), by = "variable") %>%
-    select(DIST, freq_table$variable) %>%
-    unlist() %>%
-    as.vector()
-  
-  # Add the Station_ID and DATE to the output row
-  output_row <- c(station_id, "2022-05", output_row)
-  
-  # Add the output row to the output dataframe
-  output_df[i,] <- output_row
   
 }
 
-# Save the output dataframe to a csv file
-write.csv(output_df, "output.csv", row.names = FALSE)
+
+# reset the row names of the final data frame
+rownames(stat_data) <- NULL
+
+## Retrieve missed stations
+# set the working directory to the folder containing the forest_data and stat_data files
+setwd("C:/Users/Joe/Desktop/HonorThesis")
+
+# extract the list of close stations
+close_stations <- forest_data$CLOSE_STAT
+
+# find the missed stations by subtracting close_stations from the STATION variable in stat_data
+missed_stations <- setdiff(stat_data$STATION, close_stations)
+
+
+##################### MERGE DATA
+merged_data <- merge(forest_data, stat_data, by.x = "CLOSE_STAT", by.y = "STATION", all.x = TRUE)
+
+
+######################################### Export Data ###########################
+setwd("C:/Users/Joe/Desktop/HonorThesis") # set working directory
+write.csv(merged_data, "forest_with_statdata.csv", row.names = FALSE) # export merged_data as CSV
+
+######################################## PCA ####################################
+# Clean the data to only consider rows and columns with no NA's
+# Test all columns for complete NA values
+na_cols <- sapply(merged_data, function(x) all(is.na(x)))
+
+# Get column names that satisfy the condition
+na_col_names <- names(na_cols[na_cols == TRUE])
+
+# Print column names
+cat("Columns with complete NA values: ", paste(na_col_names, collapse = ", "))
+
+## Remove Empty columns
+merged_data <- merged_data[, !names(merged_data) %in% na_col_names]
+
+################# PRECIPITATION DATA FRAME #############
+prec_data <- merged_data
+prec_data <- prec_data[complete.cases(prec_data), ]
+prec_data <- prec_data[complete.cases(prec_data$DATE), ]
+
