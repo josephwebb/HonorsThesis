@@ -1,0 +1,82 @@
+
+# Joseph Webb
+# Honors Thesis
+# March 9, 2023
+
+# Load required libraries
+library(tidyverse)
+library(geosphere)
+
+# Read in ForestData.csv and NEStations.csv
+forest_data <- read.csv("ForestData.csv") %>% 
+  select(-c(7:9)) %>% # remove empty columns
+  slice(1:304) # select rows 1-304
+
+colnames(forest_data)[5] <- "LONGITUDE"
+
+station_data <- read.csv("NEStations.csv", header = TRUE)
+
+# Convert latitude and longitude columns to numeric
+forest_data$LATITUDE <- as.numeric(forest_data$LATITUDE)
+forest_data$LONGITUDE <- as.numeric(forest_data$LONGITUDE)
+station_data$LATITUDE <- as.numeric(station_data$LATITUDE)
+station_data$LONGITUDE <- as.numeric(station_data$LONGITUDE)
+
+############ FINDING CLOSEST FOREST ##################
+# Define a function to find closest station
+find_closest_station <- function(lat, lon, station_data) {
+  distances <- geosphere::distHaversine(station_data[, c("LONGITUDE", "LATITUDE")], c(lon, lat))/1000
+  closest_station_index <- which.min(distances)
+  closest_station_id <- station_data$STATION_ID[closest_station_index]
+  closest_station_distance <- distances[closest_station_index]
+  return(list(closest_station = closest_station_id, DIST_KM = closest_station_distance))
+}
+
+# Update forest_data dataframe with closest station and distance
+forest_data <- forest_data %>%
+  rowwise() %>%
+  mutate(CLOSE_STAT = find_closest_station(LATITUDE, LONGITUDE, station_data)$closest_station,
+         DIST_KM = find_closest_station(LATITUDE, LONGITUDE, station_data)$DIST_KM)
+
+
+
+# Round the distance measurements to one decimal place
+forest_data$DIST_KM <- round(forest_data$DIST_KM, 1)
+
+# View results
+print(forest_data)
+############## COMPLETE DATA SET ###############
+
+############## Accuracy Report ###############
+# Number of unique observations under CLOSE_STAT
+unique_stations <- n_distinct(forest_data$CLOSE_STAT)
+# Mean distance under DIST_KM
+mean_distance <- mean(forest_data$DIST_KM)
+# Standard deviation of distances under DIST_KM
+sd_distance <- sd(forest_data$DIST_KM)
+# Number of forests matched with a station farther than one standard deviation away from the mean DIST_KM
+farther_than_sd <- sum(forest_data$DIST_KM > mean_distance + sd_distance | forest_data$DIST_KM < mean_distance - sd_distance)
+
+# Create the MatchAccuracy matrix
+# Number of unique observations under CLOSE_STAT
+unique_stations <- n_distinct(forest_data$CLOSE_STAT)
+# Mean distance under DIST_KM
+mean_distance <- mean(forest_data$DIST_KM)
+# Standard deviation of distances under DIST_KM
+sd_distance <- sd(forest_data$DIST_KM)
+# Number of forests matched with a station farther than one standard deviation away from the mean DIST_KM
+farther_than_sd <- sum(forest_data$DIST_KM > mean_distance + sd_distance | forest_data$DIST_KM < mean_distance - sd_distance)
+
+# Create the MatchAccuracy matrix
+MatchAccuracy <- matrix(nrow=3, ncol=2)
+colnames(MatchAccuracy) <- c("Inquiry", "Output")
+MatchAccuracy[,1] <- c("Number of unique observations under CLOSE_STAT", "Mean distance under DIST_KM", "Forests matched with station farther than 1 SD from mean DIST_KM")
+MatchAccuracy[,2] <- c(unique_stations, mean_distance, farther_than_sd)
+
+library(ggplot2)
+
+ggplot(forest_data, aes(x=DIST_KM)) + 
+  geom_histogram(fill="cornflowerblue", color="black") +
+  ggtitle("Distribution of Distance (km) from Forest to Closest Station") +
+  xlab("Distance (km)") + ylab("Count")
+
